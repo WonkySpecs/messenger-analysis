@@ -1,0 +1,6 @@
+/target
+.idea/
+**/*.rs.bk
+bin/
+*.svg
+Cargo.lock
