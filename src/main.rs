@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::convert::TryInto;
 
 const ME: &str = "Will Taylor";
-const MIN_THRESH: u32 = 1000;
+const MIN_THRESH: usize = 1000;
 
 #[derive(Deserialize, Debug)]
 struct MessageThread {
@@ -40,8 +40,8 @@ struct Message {
 struct Stats {
     thread_title: String,
     num_participants: u8,
-    sent_by_me: u32,
-    sent_by_others: u32,
+    sent_by_me: usize,
+    sent_by_others: usize,
 }
 
 fn main() {
@@ -72,13 +72,13 @@ fn main() {
         .filter(|s| s.sent_by_me + s.sent_by_others > MIN_THRESH)
         .collect();
 
-    let counts: HashMap<String, (u32, u32)> = filtered_stats.into_iter()
+    let counts: HashMap<String, (usize, usize)> = filtered_stats.into_iter()
         .map(|s| (s.thread_title, (s.sent_by_others, s.sent_by_me)))
         .collect();
 
     let mut view = CategoricalView::new();
     let bars: Vec<BarChart> = counts.iter()
-        .map(|(title, (me, others))| BarChart::new((me + others).into()).label(title))
+        .map(|(title, (me, others))| BarChart::new((me + others) as f64).label(title))
         .collect();
     for bar in &bars {
         view = view.add(bar);
@@ -89,10 +89,10 @@ fn main() {
 }
 
 fn analyse(message_thread: MessageThread) -> Stats {
-    let sent_by_me: u32 = message_thread.messages.iter()
+    let sent_by_me: usize = message_thread.messages.iter()
         .filter(|m| m.sender_name == ME)
-        .count().try_into().unwrap();
-    let sent_by_others: u32 = message_thread.messages.len() as u32 - sent_by_me;
+        .count();
+    let sent_by_others: usize = message_thread.messages.len() - sent_by_me;
 
     Stats {
         thread_title: message_thread.title,
