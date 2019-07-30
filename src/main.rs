@@ -1,12 +1,15 @@
-extern crate serde;
 extern crate plotlib;
+extern crate serde;
 
-use std::fs;
 use std::collections::HashMap;
-use serde::Deserialize;
+use std::fs;
+use std::path::PathBuf;
+
 use plotlib::barchart::BarChart;
-use plotlib::view::CategoricalView;
 use plotlib::page::Page;
+use plotlib::view::CategoricalView;
+use serde::Deserialize;
+use std::convert::TryInto;
 
 const ME: &str = "Will Taylor";
 const MIN_THRESH: u32 = 1000;
@@ -33,6 +36,7 @@ struct Message {
     content: Option<String>,
 }
 
+#[derive(Debug)]
 struct Stats {
     thread_title: String,
     num_participants: u8,
@@ -41,31 +45,40 @@ struct Stats {
 }
 
 fn main() {
-    let mut counts: HashMap<String, (u32, u32)> = HashMap::new();
-    if let Ok(thread_dirs) = fs::read_dir("bin/inbox") {
-        for thread in thread_dirs {
-            let thread = thread.expect("Couldn't get thread");
-            if let Ok(thread_dir) = fs::read_dir(thread.path()) {
-                for file_or_folder in thread_dir {
-                    let path = file_or_folder.expect("Couldn't get file").path();
-                    if path.is_file() {
-                        let content: String = std::fs::read_to_string(&path)
-                            .expect("Couldn't read file contents");
-                        let json: MessageThread = serde_json::from_str(&content)
-                            .expect("Failed to parse file contents as json");
-                        let stats = analyse(json);
-                        if stats.sent_by_me + stats.sent_by_others > MIN_THRESH {
-                            counts.insert(stats.thread_title,
-                                          (stats.sent_by_me, stats.sent_by_others));
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let sub_dirs: Vec<PathBuf> = fs::read_dir("bin/inbox")
+        .expect("Couldn't read bin/inbox").into_iter()
+        .map(|thread_dir|
+            thread_dir.expect("Couldn't get subdirectory").path())
+        .filter(|path| path.is_dir())
+        .collect();
+
+    let stats: Vec<Vec<Stats>> = sub_dirs.iter()
+        .map(|thread_dir| fs::read_dir(&thread_dir)
+            .expect(format!("Couldn't read subdirectory {:?}", thread_dir).as_str())
+            .into_iter()
+            .map(|thread_dir|
+                thread_dir.expect("Couldn't read subdirectory").path())
+            .filter(|file_or_folder| file_or_folder.is_file())
+            .map(|file| std::fs::read_to_string(&file)
+                .expect(format!("Couldn't read file {:?}", file).as_str()))
+            .map(|content| serde_json::from_str(&content)
+                .expect("Couldn't parse content as json"))
+            .map(|message_thread| analyse(message_thread))
+            .collect())
+        .collect();
+
+    let stats: Vec<Stats> = stats.into_iter().flatten().collect();
+    let filtered_stats: Vec<Stats> = stats.into_iter()
+        .filter(|s| s.sent_by_me + s.sent_by_others > MIN_THRESH)
+        .collect();
+
+    let counts: HashMap<String, (u32, u32)> = filtered_stats.into_iter()
+        .map(|s| (s.thread_title, (s.sent_by_others, s.sent_by_me)))
+        .collect();
+
     let mut view = CategoricalView::new();
     let bars: Vec<BarChart> = counts.iter()
-        .map(|(title, (me, other))| BarChart::new((me + other).into()).label(title))
+        .map(|(title, (me, others))| BarChart::new((me + others).into()).label(title))
         .collect();
     for bar in &bars {
         view = view.add(bar);
@@ -76,20 +89,15 @@ fn main() {
 }
 
 fn analyse(message_thread: MessageThread) -> Stats {
-    let mut me: u32 = 0;
-    let mut others: u32 = 0;
-    for message in message_thread.messages {
-        if message.sender_name == ME {
-            me += 1;
-        } else {
-            others += 1;
-        }
-    }
+    let sent_by_me: u32 = message_thread.messages.iter()
+        .filter(|m| m.sender_name == ME)
+        .count().try_into().unwrap();
+    let sent_by_others: u32 = message_thread.messages.len() as u32 - sent_by_me;
 
     Stats {
         thread_title: message_thread.title,
         num_participants: message_thread.participants.len() as u8,
-        sent_by_me: me,
-        sent_by_others: others,
+        sent_by_me,
+        sent_by_others,
     }
 }
